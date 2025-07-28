@@ -14,7 +14,6 @@ from .spsl_detector import SpslDetector
 from .srm_detector import SRMDetector
 from .recce_detector import RecceDetector
 from .clip_detector import CLIPDetector
-from .clip_detector_gradcam import CLIPDetectorWithGradCAM
 from .sbi_detector import SBIDetector
 from .i3d_detector import I3DDetector
 from .rfm_detector import RFMDetector
