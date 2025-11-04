@@ -1,5 +1,5 @@
 # Explainable Deepfake Detection Framework
-**Human-AI collaboration for deepfake detection via explainable image classification**
+As referenced in **Human-AI collaboration for deepfake detection via explainable image classification**.
 
 ## Overview
 We presently establish the code used to implement the explainable deepfake detection framework utilised in the above study. This framework classifies facial portraits as either real or deepfake, and can provide accompanying explanations to users. This is done to facilitate human-AI collaboration, given the necessity of understandable mechanisms in downstream deepfake detection applications. 
