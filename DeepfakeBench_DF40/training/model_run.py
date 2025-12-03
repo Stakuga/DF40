@@ -52,7 +52,7 @@ parser.add_argument('--xai', type=str, default=None,)
 parser.add_argument('--image_path', type=str, default=None,)
 args = parser.parse_args()
 
-client = genai.Client(api_key="AIzaSyAgdIJZwWJcgjji1oby8aC2_mL7Vjb121E") # CHANGE LATER
+client = genai.Client(api_key=#KEY) # CHANGE LATER
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
