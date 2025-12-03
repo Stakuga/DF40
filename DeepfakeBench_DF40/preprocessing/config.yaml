@@ -4,7 +4,7 @@ preprocess:
     default: 'DF40_ff'
   dataset_root_path: # the root path to the dataset
     type: str
-    default: '/Youtu_Pangu_Security/public/youtu-pangu-public/zhiyuanyan/deepfakes_detection_datasets'
+    default: '/Volumes/T7/EFS'
   comp: # the compression level of videos, only in the dataset of FaceForensics++.
     choices: ['raw', 'c23', 'c40']
     default: 'c23'
@@ -24,7 +24,7 @@ rearrange:
     default: 'SRI_hq'
   dataset_root_path: # the root path to the dataset
     type: str
-    default: '/Youtu_Pangu_Security/public/youtu-pangu-public/zhiyuanyan/deepfakes_detection_datasets'
+    default: '/Volumes/T7/EFS'
   output_file_path: # the json path to the dataset
     type: str
     default: '/Youtu_Pangu_Security_Public/youtu-pangu-public/zhiyuanyan/DeepfakeBenchv2/preprocessing/dataset_json'

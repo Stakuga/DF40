@@ -12,7 +12,7 @@ from .utils import slowfast
 from .xception_detector import XceptionDetector
 from .spsl_detector import SpslDetector
 from .srm_detector import SRMDetector
-from .recce_detector import RecceDetector
+#from .recce_detector import RecceDetector
 from .clip_detector import CLIPDetector
 from .sbi_detector import SBIDetector
 from .i3d_detector import I3DDetector

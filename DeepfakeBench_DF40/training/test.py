@@ -33,6 +33,11 @@ from collections import defaultdict
 import argparse
 from logger import create_logger
 
+from pytorch_grad_cam import GradCAM, GradCAMPlusPlus, HiResCAM, EigenGradCAM, AblationCAM, ScoreCAM, FEM, FinerCAM, XGradCAM, EigenCAM, LayerCAM, FullGrad, DeepFeatureFactorization, ShapleyCAM, KPCA_CAM
+from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
+from pytorch_grad_cam.utils.image import show_cam_on_image
+from pytorch_grad_cam.ablation_layer import AblationLayerVit
+
 parser = argparse.ArgumentParser(description='Process some paths.')
 parser.add_argument('--detector_path', type=str, 
                     default='/home/zhiyuanyan/DeepfakeBench/training/config/detector/resnet34.yaml',
@@ -45,10 +50,11 @@ args = parser.parse_args()
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-on_2060 = "2060" in torch.cuda.get_device_name()
+on_2060 = False#"2060" in torch.cuda.get_device_name()
 def init_seed(config):
-    if config['manualSeed'] is None:
-        config['manualSeed'] = random.randint(1, 10000)
+    # if config['manualSeed'] is None:
+    #     config['manualSeed'] = random.randint(1, 10000)
+    config['manualSeed'] = random.randint(1, 10000)
     random.seed(config['manualSeed'])
     torch.manual_seed(config['manualSeed'])
     if config['cuda']:
@@ -68,7 +74,7 @@ def prepare_testing_data(config):
             torch.utils.data.DataLoader(
                 dataset=test_set, 
                 batch_size=config['test_batchSize'],
-                shuffle=False, 
+                shuffle=True, 
                 num_workers=int(config['workers']),
                 collate_fn=test_set.collate_fn,
                 drop_last=False
@@ -86,6 +92,207 @@ def choose_metric(config):
     if metric_scoring not in ['eer', 'auc', 'acc', 'ap']:
         raise NotImplementedError('metric {} is not implemented'.format(metric_scoring))
     return metric_scoring
+
+def reshape_transform(tensor, height=16, width=16):
+    # tensor shape: [B, num_tokens, hidden_dim]
+    # ignore [CLS] token and reshape to image grid
+    if isinstance(tensor, tuple):
+        tensor = tensor[0]
+    # print("type is {}".format(type(tensor)))
+    # print("tensor is {}".format(tensor))
+    # print("shape is {}".format(tensor.shape))
+    result = tensor[:, 1:, :].reshape(tensor.size(0),
+        height, width, tensor.size(2))
+
+    # Bring the channels to the first dimension,
+    # like in CNNs.
+    result = result.transpose(2, 3).transpose(1, 2)
+    return result
+
+class GradCAMWrapper(torch.nn.Module):
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+    
+    def forward(self, x):
+        data_dict = {'image': x}
+        out = self.model(data_dict, inference=True)
+        return out['cls']
+    
+class ScalarOutputTarget:
+    def __call__(self, model_output):
+        return model_output  # just return the scalar output directly
+
+    
+
+def go_crazy(model, test_data_loaders):
+    wrapped_model = GradCAMWrapper(model)
+    wrapped_model.eval()
+    target_layers = [wrapped_model.model.backbone.encoder.layers[-1].layer_norm1]  # Adjust this to the appropriate layer (CHANGE)
+    #cam = GradCAM(model=wrapped_model, target_layers=target_layers, reshape_transform=reshape_transform)
+    #cam = GradCAMPlusPlus(model=wrapped_model, target_layers=target_layers, reshape_transform=reshape_transform)
+    #cam = HiResCAM(model=wrapped_model, target_layers=target_layers, reshape_transform=reshape_transform)
+    #cam = EigenGradCAM(model=wrapped_model, target_layers=target_layers, reshape_transform=reshape_transform)
+    #cam = AblationCAM(model=wrapped_model, target_layers=target_layers, reshape_transform=reshape_transform, ablation_layer=AblationLayerVit())
+    cam = ScoreCAM(model=wrapped_model, target_layers=target_layers, reshape_transform=reshape_transform)
+
+    save_dir = "cam_outputs"
+    os.makedirs(save_dir, exist_ok=True)
+
+    keys = test_data_loaders.keys()
+    for key in keys:
+        for i, data_dict in enumerate(test_data_loaders[key]):
+            # print("data_dict is {}".format(data_dict.keys()))
+            image_tensor = data_dict['image'].to(device)  # shape: (B, C, H, W)
+            labels = data_dict['label']         # list of B strings
+
+            image_paths = data_dict['path']
+
+            # print("image tensor shape is {}".format(image_tensor.shape))
+            # print("labels are {}".format(labels))
+
+            for j in range(image_tensor.shape[0]):
+
+                original_path = image_paths[j][0] if isinstance(image_paths[j], list) else image_paths[j]
+                original_path = 'datasets/' + original_path 
+                
+
+                input_tensor = image_tensor[j].unsqueeze(0)
+                label = labels[j].item()
+                # Forward pass + GradCAM
+                with torch.no_grad():
+                    output = wrapped_model(input_tensor)
+                    print("Model output shape:", output.shape)
+                    print("Model output:", output)
+                predicted_label = output.argmax(dim=1).item()
+                print("Predicted label is {}".format(predicted_label))
+                print("Ground-truth label is {}".format(label))
+                #targets = [ClassifierOutputTarget(label)]  # Use predicted or ground-truth label
+                targets = None
+                # targets = [ScalarOutputTarget()]  # Use scalar output target
+                grayscale_cam = cam(input_tensor=input_tensor, targets=targets)[0]
+                #grayscale_cam = cam(input_tensor=input_tensor, targets=targets, aug_smooth=False, eigen_smooth=False)[0]  # shape (H, W)
+                print(grayscale_cam.min(), grayscale_cam.max(), grayscale_cam.mean())
+
+                # Read in original image from original path
+                true_img = cv2.imread(original_path)
+                true_rgb = cv2.cvtColor(true_img, cv2.COLOR_BGR2RGB) / 255.0
+
+
+                # Crop image from 1024x1024 to 985x985
+                height, width = true_img.shape[:2]
+
+                # Define target size
+                target_size = 985
+
+                # Calculate crop coordinates (center crop)
+                start_x = (width - target_size) // 2
+                start_y = (height - target_size) // 2
+                end_x = start_x + target_size
+                end_y = start_y + target_size
+
+                # Crop the image and rgb
+                true_img = true_img[start_y:end_y, start_x:end_x]
+                true_rgb = true_rgb[start_y:end_y, start_x:end_x]
+
+                # Resize 224×224 heatmap to match your 985×985 crop
+                heatmap_985 = cv2.resize(grayscale_cam, (985, 985))
+
+                visualization = show_cam_on_image(true_rgb, heatmap_985, use_rgb=True)
+
+                # # Convert image to numpy format
+                # rgb_img = input_tensor[0].cpu().numpy().transpose(1, 2, 0)  # (H, W, C)
+                # rgb_img = (rgb_img - rgb_img.min()) / (rgb_img.max() - rgb_img.min() + 1e-5)
+
+                # # get original image too
+                # original_img = rgb_img.copy()
+                # orig_img_uint8 = (original_img * 255).astype(np.uint8)
+
+                # Save the 985×985 results
+                orig_path = os.path.join(save_dir, f"img_{i}_{j}_GT_{label}_P_{predicted_label}_orig.png")
+                cv2.imwrite(orig_path, cv2.cvtColor((true_rgb * 255).astype(np.uint8), cv2.COLOR_RGB2BGR))
+
+                out_path = os.path.join(save_dir, f"img_{i}_{j}_GT_{label}_P_{predicted_label}.png")
+                cv2.imwrite(out_path, cv2.cvtColor(visualization, cv2.COLOR_RGB2BGR))
+
+                # # save
+                # orig_path = os.path.join(save_dir, f"img_{i}_{j}_GT_{label}_P_{predicted_label}_orig.png")
+                # cv2.imwrite(orig_path, cv2.cvtColor(orig_img_uint8, cv2.COLOR_RGB2BGR))
+
+                # # Overlay heatmap on image
+                # cam_image = show_cam_on_image(rgb_img, grayscale_cam, use_rgb=True)
+
+                # # Save image
+                # out_path = os.path.join(save_dir, f"img_{i}_{j}_GT_{label}_P_{predicted_label}.png")
+                # cv2.imwrite(out_path, cv2.cvtColor(cam_image, cv2.COLOR_RGB2BGR))
+
+
+        
+def go_crazy_classification_only(model, test_data_loaders):
+    wrapped_model = GradCAMWrapper(model)
+    wrapped_model.eval()
+    target_layers = [wrapped_model.model.backbone.encoder.layers[-1].layer_norm1]  # Adjust this to the appropriate layer (CHANGE)
+    cam = ScoreCAM(model=wrapped_model, target_layers=target_layers, reshape_transform=reshape_transform)
+
+    save_dir = "cam_outputs"
+    os.makedirs(save_dir, exist_ok=True)
+
+    keys = test_data_loaders.keys()
+    for key in keys:
+        for i, data_dict in enumerate(test_data_loaders[key]):
+            # print("data_dict is {}".format(data_dict.keys()))
+            image_tensor = data_dict['image'].to(device)  # shape: (B, C, H, W)
+            labels = data_dict['label']         # list of B strings
+
+            image_paths = data_dict['path']
+
+            # print("image tensor shape is {}".format(image_tensor.shape))
+            # print("labels are {}".format(labels))
+
+            for j in range(image_tensor.shape[0]):
+
+                original_path = image_paths[j][0] if isinstance(image_paths[j], list) else image_paths[j]
+                original_path = 'datasets/' + original_path 
+                
+
+                input_tensor = image_tensor[j].unsqueeze(0)
+                label = labels[j].item()
+                # Forward pass + GradCAM
+                with torch.no_grad():
+                    output = wrapped_model(input_tensor)
+                    print("Model output shape:", output.shape)
+                    print("Model output:", output)
+                predicted_label = output.argmax(dim=1).item()
+                print("Predicted label is {}".format(predicted_label))
+                print("Ground-truth label is {}".format(label))
+
+                # Read in original image from original path
+                true_img = cv2.imread(original_path)
+                true_rgb = cv2.cvtColor(true_img, cv2.COLOR_BGR2RGB) / 255.0
+
+
+                # Crop image from 1024x1024 to 985x985
+                height, width = true_img.shape[:2]
+
+                # Define target size
+                target_size = 985
+
+                # Calculate crop coordinates (center crop)
+                start_x = (width - target_size) // 2
+                start_y = (height - target_size) // 2
+                end_x = start_x + target_size
+                end_y = start_y + target_size
+
+                # Crop the image and rgb
+                true_img = true_img[start_y:end_y, start_x:end_x]
+                true_rgb = true_rgb[start_y:end_y, start_x:end_x]
+
+
+
+                # Save the 985×985 results
+                orig_path = os.path.join(save_dir, f"img_{i}_{j}_GT_{label}_P_{predicted_label}_orig.png")
+                cv2.imwrite(orig_path, cv2.cvtColor((true_rgb * 255).astype(np.uint8), cv2.COLOR_RGB2BGR))
+
 
 
 def test_one_dataset(model, data_loader):
@@ -205,8 +412,16 @@ def main():
         print('Fail to load the pre-trained weights')
     
     # start testing
-    best_metric = test_epoch(model, test_data_loaders)
-    print('===> Test Done!')
+    # best_metric = test_epoch(model, test_data_loaders)
+    # print('===> Test Done!')
+
+    # print('Starting GradCAM visualization...')
+    # go_crazy(model, test_data_loaders)
+    # print('GradCAM visualization done!')
+
+    print('Starting general classification...')
+    go_crazy_classification_only(model, test_data_loaders)
+    print('General classification done!')
 
 if __name__ == '__main__':
     main()

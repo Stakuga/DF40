@@ -156,7 +156,8 @@ class DeepfakeAbstractBaseDataset(data.Dataset):
         if not os.path.exists(self.config['dataset_json_folder']):
             self.config['dataset_json_folder'] = self.config['dataset_json_folder'].replace('/Youtu_Pangu_Security_Public', '/Youtu_Pangu_Security/public')
         try:
-            with open(os.path.join(self.config['dataset_json_folder'], dataset_name + '.json'), 'r') as f:
+            #with open(os.path.join(self.config['dataset_json_folder'], dataset_name + '.json'), 'r') as f:
+            with open(os.path.join('/Users/louiscopland/Documents/GitHub/DF40/DeepfakeBench_DF40/preprocessing/dataset_json', dataset_name + '.json'), 'r') as f:
                 dataset_info = json.load(f)
         except Exception as e:
             print(e)
@@ -294,6 +295,8 @@ class DeepfakeAbstractBaseDataset(data.Dataset):
         """
         size = self.config['resolution'] # if self.mode == "train" else self.config['resolution']
         if not self.lmdb:
+            if not file_path[0] == '.':
+                file_path =  f'{self.config["dataset_root_rgb"]}/'+file_path
             assert os.path.exists(file_path), f"{file_path} does not exist"
             img = cv2.imread(file_path)
 
@@ -311,6 +314,16 @@ class DeepfakeAbstractBaseDataset(data.Dataset):
                 image_bin = txn.get(file_path.encode())
                 image_buf = np.frombuffer(image_bin, dtype=np.uint8)
                 img = cv2.imdecode(image_buf, cv2.IMREAD_COLOR)
+
+        # resize from 1024x1024 to 985x985
+        height, width = img.shape[:2]
+        target_size = 985
+        start_x = (width - target_size) // 2
+        start_y = (height - target_size) // 2
+        end_x = start_x + target_size
+        end_y = start_y + target_size
+        img = img[start_y:end_y, start_x:end_x]
+
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         img = cv2.resize(img, (size, size), interpolation=cv2.INTER_CUBIC)
         return Image.fromarray(np.array(img, dtype=np.uint8))
@@ -557,7 +570,7 @@ class DeepfakeAbstractBaseDataset(data.Dataset):
             if not any(m is None or (isinstance(m, list) and None in m) for m in mask_tensors):
                 mask_tensors = mask_tensors[0]
 
-        return image_tensors, label, landmark_tensors, mask_tensors
+        return image_tensors, label, landmark_tensors, mask_tensors, image_paths
 
     @staticmethod
     def collate_fn(batch):
@@ -573,7 +586,7 @@ class DeepfakeAbstractBaseDataset(data.Dataset):
             and the mask tensor.
         """
         # Separate the image, label, landmark, and mask tensors
-        images, labels, landmarks, masks = zip(*batch)
+        images, labels, landmarks, masks, paths = zip(*batch)
 
         # Stack the image, label, landmark, and mask tensors
         images = torch.stack(images, dim=0)
@@ -596,6 +609,7 @@ class DeepfakeAbstractBaseDataset(data.Dataset):
         data_dict['label'] = labels
         data_dict['landmark'] = landmarks
         data_dict['mask'] = masks
+        data_dict['path'] = paths
         return data_dict
 
     def __len__(self):
