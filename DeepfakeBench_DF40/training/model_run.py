@@ -35,7 +35,7 @@ from collections import defaultdict
 import argparse
 from logger import create_logger
 
-from pytorch_grad_cam import GradCAM, GradCAMPlusPlus, HiResCAM, EigenGradCAM, AblationCAM, ScoreCAM, FEM, FinerCAM, XGradCAM, EigenCAM, LayerCAM, FullGrad, DeepFeatureFactorization, ShapleyCAM, KPCA_CAM
+from pytorch_grad_cam import ScoreCAM
 from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
 from pytorch_grad_cam.utils.image import show_cam_on_image
 from pytorch_grad_cam.ablation_layer import AblationLayerVit
@@ -52,11 +52,11 @@ parser.add_argument('--xai', type=str, default=None,)
 parser.add_argument('--image_path', type=str, default=None,)
 args = parser.parse_args()
 
-client = genai.Client(api_key=#KEY) # CHANGE LATER
+client = genai.Client(api_key='API_KEY') # replace 'API_KEY' with actual API key
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-on_2060 = False#"2060" in torch.cuda.get_device_name()
+on_2060 = False
 def init_seed(config):
     # if config['manualSeed'] is None:
     #     config['manualSeed'] = random.randint(1, 10000)
@@ -104,9 +104,6 @@ def reshape_transform(tensor, height=16, width=16):
     # ignore [CLS] token and reshape to image grid
     if isinstance(tensor, tuple):
         tensor = tensor[0]
-    # print("type is {}".format(type(tensor)))
-    # print("tensor is {}".format(tensor))
-    # print("shape is {}".format(tensor.shape))
     result = tensor[:, 1:, :].reshape(tensor.size(0),
         height, width, tensor.size(2))
 

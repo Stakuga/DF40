@@ -33,7 +33,7 @@ from collections import defaultdict
 import argparse
 from logger import create_logger
 
-from pytorch_grad_cam import GradCAM, GradCAMPlusPlus, HiResCAM, EigenGradCAM, AblationCAM, ScoreCAM, FEM, FinerCAM, XGradCAM, EigenCAM, LayerCAM, FullGrad, DeepFeatureFactorization, ShapleyCAM, KPCA_CAM
+from pytorch_grad_cam import ScoreCAM
 from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
 from pytorch_grad_cam.utils.image import show_cam_on_image
 from pytorch_grad_cam.ablation_layer import AblationLayerVit
@@ -50,8 +50,8 @@ args = parser.parse_args()
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-on_2060 = False#"2060" in torch.cuda.get_device_name()
-def init_seed(config):
+on_2060 = False
+def init_seed(config): # edited to randomly sample evaluation images
     # if config['manualSeed'] is None:
     #     config['manualSeed'] = random.randint(1, 10000)
     config['manualSeed'] = random.randint(1, 10000)
@@ -93,14 +93,15 @@ def choose_metric(config):
         raise NotImplementedError('metric {} is not implemented'.format(metric_scoring))
     return metric_scoring
 
+# a reshape_transform() function has to be used for ViT models
+# to transform ViT outputs to a CNN-like format for the CAM methods to take
+# https://jacobgil.github.io/pytorch-gradcam-book/vision_transformers.html
+
 def reshape_transform(tensor, height=16, width=16):
     # tensor shape: [B, num_tokens, hidden_dim]
     # ignore [CLS] token and reshape to image grid
     if isinstance(tensor, tuple):
         tensor = tensor[0]
-    # print("type is {}".format(type(tensor)))
-    # print("tensor is {}".format(tensor))
-    # print("shape is {}".format(tensor.shape))
     result = tensor[:, 1:, :].reshape(tensor.size(0),
         height, width, tensor.size(2))
 
@@ -109,6 +110,7 @@ def reshape_transform(tensor, height=16, width=16):
     result = result.transpose(2, 3).transpose(1, 2)
     return result
 
+# wrapper to enable access to ViT model internals
 class GradCAMWrapper(torch.nn.Module):
     def __init__(self, model):
         super().__init__()
@@ -124,32 +126,25 @@ class ScalarOutputTarget:
         return model_output  # just return the scalar output directly
 
     
-
+# GradCAM visualization function
 def go_crazy(model, test_data_loaders):
     wrapped_model = GradCAMWrapper(model)
     wrapped_model.eval()
-    target_layers = [wrapped_model.model.backbone.encoder.layers[-1].layer_norm1]  # Adjust this to the appropriate layer (CHANGE)
-    #cam = GradCAM(model=wrapped_model, target_layers=target_layers, reshape_transform=reshape_transform)
-    #cam = GradCAMPlusPlus(model=wrapped_model, target_layers=target_layers, reshape_transform=reshape_transform)
-    #cam = HiResCAM(model=wrapped_model, target_layers=target_layers, reshape_transform=reshape_transform)
-    #cam = EigenGradCAM(model=wrapped_model, target_layers=target_layers, reshape_transform=reshape_transform)
-    #cam = AblationCAM(model=wrapped_model, target_layers=target_layers, reshape_transform=reshape_transform, ablation_layer=AblationLayerVit())
-    cam = ScoreCAM(model=wrapped_model, target_layers=target_layers, reshape_transform=reshape_transform)
+    target_layers = [wrapped_model.model.backbone.encoder.layers[-1].layer_norm1]  # through experimentation, this layer worked best when outputting heatmaps
+    cam = ScoreCAM(model=wrapped_model, target_layers=target_layers, reshape_transform=reshape_transform) # initialise ScoreCAM 
 
     save_dir = "cam_outputs"
     os.makedirs(save_dir, exist_ok=True)
 
+    # edit evaluation flow to include heatmaps
     keys = test_data_loaders.keys()
     for key in keys:
         for i, data_dict in enumerate(test_data_loaders[key]):
-            # print("data_dict is {}".format(data_dict.keys()))
+            
             image_tensor = data_dict['image'].to(device)  # shape: (B, C, H, W)
             labels = data_dict['label']         # list of B strings
 
             image_paths = data_dict['path']
-
-            # print("image tensor shape is {}".format(image_tensor.shape))
-            # print("labels are {}".format(labels))
 
             for j in range(image_tensor.shape[0]):
 
@@ -167,40 +162,40 @@ def go_crazy(model, test_data_loaders):
                 predicted_label = output.argmax(dim=1).item()
                 print("Predicted label is {}".format(predicted_label))
                 print("Ground-truth label is {}".format(label))
-                #targets = [ClassifierOutputTarget(label)]  # Use predicted or ground-truth label
-                targets = None
-                # targets = [ScalarOutputTarget()]  # Use scalar output target
+                targets = None # let ScoreCAM use the highest scoring class by default
+                # make heatmap
                 grayscale_cam = cam(input_tensor=input_tensor, targets=targets)[0]
-                #grayscale_cam = cam(input_tensor=input_tensor, targets=targets, aug_smooth=False, eigen_smooth=False)[0]  # shape (H, W)
                 print(grayscale_cam.min(), grayscale_cam.max(), grayscale_cam.mean())
 
-                # Read in original image from original path
+                # read in original image from original path
+                # to output high-res image, as ViT input was only 224x224
+                # so outputting that is insufficient
                 true_img = cv2.imread(original_path)
                 true_rgb = cv2.cvtColor(true_img, cv2.COLOR_BGR2RGB) / 255.0
 
-
-                # Crop image from 1024x1024 to 985x985
+                # crop image from 1024x1024 to 985x985
                 height, width = true_img.shape[:2]
 
-                # Define target size
+                # define target size
                 target_size = 985
 
-                # Calculate crop coordinates (center crop)
+                # calculate crop coordinates (center crop)
                 start_x = (width - target_size) // 2
                 start_y = (height - target_size) // 2
                 end_x = start_x + target_size
                 end_y = start_y + target_size
 
-                # Crop the image and rgb
+                # crop the image and rgb
                 true_img = true_img[start_y:end_y, start_x:end_x]
                 true_rgb = true_rgb[start_y:end_y, start_x:end_x]
 
-                # Resize 224×224 heatmap to match your 985×985 crop
+                # resize 224×224 heatmap to match 985×985 crop
+                # scale/structure is preserved because 224x224 images were cropped prior to resizing in abstract_dataset.py
                 heatmap_985 = cv2.resize(grayscale_cam, (985, 985))
-
+                # overlay heatmap on image
                 visualization = show_cam_on_image(true_rgb, heatmap_985, use_rgb=True)
 
-                # # Convert image to numpy format
+                # # convert image to numpy format
                 # rgb_img = input_tensor[0].cpu().numpy().transpose(1, 2, 0)  # (H, W, C)
                 # rgb_img = (rgb_img - rgb_img.min()) / (rgb_img.max() - rgb_img.min() + 1e-5)
 
@@ -227,11 +222,11 @@ def go_crazy(model, test_data_loaders):
                 # cv2.imwrite(out_path, cv2.cvtColor(cam_image, cv2.COLOR_RGB2BGR))
 
 
-        
+# also have a non-heatmap version to quickly generate predictions only        
 def go_crazy_classification_only(model, test_data_loaders):
     wrapped_model = GradCAMWrapper(model)
     wrapped_model.eval()
-    target_layers = [wrapped_model.model.backbone.encoder.layers[-1].layer_norm1]  # Adjust this to the appropriate layer (CHANGE)
+    target_layers = [wrapped_model.model.backbone.encoder.layers[-1].layer_norm1]
     cam = ScoreCAM(model=wrapped_model, target_layers=target_layers, reshape_transform=reshape_transform)
 
     save_dir = "cam_outputs"
@@ -240,14 +235,9 @@ def go_crazy_classification_only(model, test_data_loaders):
     keys = test_data_loaders.keys()
     for key in keys:
         for i, data_dict in enumerate(test_data_loaders[key]):
-            # print("data_dict is {}".format(data_dict.keys()))
             image_tensor = data_dict['image'].to(device)  # shape: (B, C, H, W)
             labels = data_dict['label']         # list of B strings
-
             image_paths = data_dict['path']
-
-            # print("image tensor shape is {}".format(image_tensor.shape))
-            # print("labels are {}".format(labels))
 
             for j in range(image_tensor.shape[0]):
 
@@ -257,7 +247,7 @@ def go_crazy_classification_only(model, test_data_loaders):
 
                 input_tensor = image_tensor[j].unsqueeze(0)
                 label = labels[j].item()
-                # Forward pass + GradCAM
+                # forward pass + GradCAM
                 with torch.no_grad():
                     output = wrapped_model(input_tensor)
                     print("Model output shape:", output.shape)
@@ -266,30 +256,28 @@ def go_crazy_classification_only(model, test_data_loaders):
                 print("Predicted label is {}".format(predicted_label))
                 print("Ground-truth label is {}".format(label))
 
-                # Read in original image from original path
+                # read in original image from original path
                 true_img = cv2.imread(original_path)
                 true_rgb = cv2.cvtColor(true_img, cv2.COLOR_BGR2RGB) / 255.0
 
 
-                # Crop image from 1024x1024 to 985x985
+                # crop image from 1024x1024 to 985x985
                 height, width = true_img.shape[:2]
 
-                # Define target size
+                # define target size
                 target_size = 985
 
-                # Calculate crop coordinates (center crop)
+                # calculate crop coordinates (center crop)
                 start_x = (width - target_size) // 2
                 start_y = (height - target_size) // 2
                 end_x = start_x + target_size
                 end_y = start_y + target_size
 
-                # Crop the image and rgb
+                # crop the image and rgb
                 true_img = true_img[start_y:end_y, start_x:end_x]
                 true_rgb = true_rgb[start_y:end_y, start_x:end_x]
 
-
-
-                # Save the 985×985 results
+                # save the 985×985 results
                 orig_path = os.path.join(save_dir, f"img_{i}_{j}_GT_{label}_P_{predicted_label}_orig.png")
                 cv2.imwrite(orig_path, cv2.cvtColor((true_rgb * 255).astype(np.uint8), cv2.COLOR_RGB2BGR))
 
@@ -414,6 +402,8 @@ def main():
     # start testing
     # best_metric = test_epoch(model, test_data_loaders)
     # print('===> Test Done!')
+
+    # comment/uncommenting go_crazy()/go_crazy_classification_only() as needed
 
     # print('Starting GradCAM visualization...')
     # go_crazy(model, test_data_loaders)
