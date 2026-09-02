@@ -1,8 +1,5 @@
 '''
-# author: Zhiyuan Yan
-# email: zhiyuanyan@link.cuhk.edu.cn
-# date: 2023-0706
-# description: Class for the XceptionDetector
+# description: Class for the CLIPDetector
 
 Functions in the Class are summarized as:
 1. __init__: Initialization
@@ -38,7 +35,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.nn import DataParallel
-from torch.utils.tensorboard import SummaryWriter
 
 from metrics.base_metrics_class import calculate_metrics_for_train
 

@@ -1,9 +1,8 @@
 # log dir 
-log_dir: /Youtu_Pangu_Security/public/youtu-pangu-public/zhiyuanyan/logs/df40_exps/trainOnEFS/clip_large
-#log_dir: /Youtu_Pangu_Security/public/youtu-pangu-public/zhiyuanyan/logs/df40_exps/trainOnDF40/clip_multihead
+log_dir: ./logs/clip_large
 
 # model setting
-pretrained: ./training/pretrained/xception-b5690688.pth   # path to a pre-trained model, if using one
+pretrained: null   # path to a pre-trained model, if using one (unused by the CLIP detector)
 model_name: clip   # model name
 backbone_name: vit  # backbone name
 
