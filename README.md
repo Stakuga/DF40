@@ -18,7 +18,7 @@ This framework is based on the deepfake detection code provided in the DF40 repo
   - The multimodal explanations are a combination of LLM-generated text conditioned on Score-CAM heatmaps.
 
 ## Usage
-Install the dependencies and run the classifier on a single facial image. To generate our survey data, we first randomly selected 20 images from the WhichFaceIsReal [2] set of images included in the broader DF40 dataset. We then ran our explainable deepfake detection pipeline on each image, repeating the process for predictions-only, text-only explanations, visual-only explanations and multimodal explanations.
+Install the dependencies and run the classifier on a single facial image. To generate our survey data, we first randomly selected 20 images from the WhichFaceIsReal [2] set of images included in the broader DF40 dataset (linked by the repository as whichfaceisreal.zip here for convenience: https://drive.google.com/drive/folders/1980LCMAutfWvV6zvdxhoeIa67TmzKLQ_). We then ran our explainable deepfake detection pipeline on each image, repeating the process for predictions-only, text-only explanations, visual-only explanations and multimodal explanations.
 
 ```bash
 pip install -r requirements.txt
