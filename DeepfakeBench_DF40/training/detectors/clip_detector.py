@@ -11,7 +11,6 @@ Functions in the Class are summarized as:
 7. get_train_metrics: Training-metrics-computation
 8. get_test_metrics: Testing-metrics-computation
 9. forward: Forward-propagation
-
 '''
 
 import os
