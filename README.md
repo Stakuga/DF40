@@ -1,5 +1,5 @@
 # Explainable Deepfake Detection Framework
-As referenced in **Exploring the Role of Explainable AI in Driving Successful Human-AI Collaboration for Deepfake Detection**.
+As referenced in **From Acceptance to Appropriate Reliance: Understanding the Role of Explanations in AI-Assisted Deepfake Detection**.
 
 ## Overview
 We presently establish the code used to implement the explainable deepfake detection framework utilised in the above study. This framework classifies facial portraits as either real or deepfake, and can provide accompanying explanations to users. This is done to facilitate human-AI collaboration, given the necessity of understandable mechanisms in downstream deepfake detection applications. 
